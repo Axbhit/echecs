@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#282737">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Échecs">
+  <title>Échecs — Entraînement</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script>
+    /* Thème et échiquier appliqués avant l'affichage, pour éviter un flash. */
+    try {
+      var t = JSON.parse(localStorage.getItem('echecs.theme') || '"auto"');
+      var b = JSON.parse(localStorage.getItem('echecs.boardTheme') || '"bois"');
+      if (t !== 'auto') document.documentElement.dataset.theme = t;
+      document.documentElement.dataset.board = b;
+      if (JSON.parse(localStorage.getItem('echecs.coords') || 'true') === false) document.documentElement.classList.add('no-coords');
+    } catch (e) { document.documentElement.dataset.board = 'bois'; }
+  </script>
+  <script>
+    /* Secours : si l'appli n'a pas pu démarrer (données abîmées, par exemple après la restauration d'un fichier
+       incorrect), on propose de garder une copie des données puis de réinitialiser. */
+    window.addEventListener('load', function () {
+      setTimeout(function () {
+        if (window.__echecsOK) return;
+        var keys = [];
+        try { for (var i = 0; i < localStorage.length; i++) { var k = localStorage.key(i); if (k && k.indexOf('echecs.') === 0) keys.push(k); } } catch (e) { /* stockage indisponible */ }
+        var box = document.createElement('div');
+        box.setAttribute('role', 'alertdialog');
+        box.style.cssText = 'position:fixed;inset:0;z-index:9999;display:grid;place-items:center;background:rgba(0,0,0,.55);font:15px system-ui,sans-serif';
+        box.innerHTML = '<div style="max-width:420px;margin:16px;padding:20px;border-radius:14px;background:#fff;color:#222;line-height:1.45">'
+          + '<h2 style="margin:0 0 8px;font-size:18px">L\'appli n\'a pas pu démarrer</h2>'
+          + '<p>Les données enregistrées dans ce navigateur semblent abîmées (par exemple après la restauration d\'un fichier incorrect).</p>'
+          + '<p><button type="button" id="rescue-dl" style="font:inherit;padding:8px 12px">1. Télécharger une copie de mes données</button></p>'
+          + '<p><button type="button" id="rescue-reset" style="font:inherit;padding:8px 12px">2. Réinitialiser l\'appli</button></p>'
+          + '<p style="font-size:13px;color:#555">La réinitialisation efface la progression de ce navigateur. Tu pourras ensuite restaurer une bonne sauvegarde depuis les Réglages.</p></div>';
+        document.body.appendChild(box);
+        document.getElementById('rescue-dl').onclick = function () {
+          var data = {};
+          keys.forEach(function (k) { try { data[k.slice(7)] = JSON.parse(localStorage.getItem(k)); } catch (e) { /* illisible */ } });
+          var a = document.createElement('a');
+          a.href = URL.createObjectURL(new Blob([JSON.stringify({ app: 'echecs-entrainement', version: 1, date: new Date().toISOString(), data: data })], { type: 'application/json' }));
+          a.download = 'echecs-sauvegarde-secours.json';
+          document.body.appendChild(a); a.click(); a.remove();
+        };
+        var armed = false;
+        document.getElementById('rescue-reset').onclick = function () {
+          if (!armed) { armed = true; this.textContent = 'Confirmer : tout effacer et redémarrer'; return; }
+          keys.forEach(function (k) { try { localStorage.removeItem(k); } catch (e) { /* rien */ } });
+          location.reload();
+        };
+      }, 300);
+    });
+  </script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" data-piece="N"></span>
+      <div class="brand-text"><strong>Échecs</strong><small>Entraînement</small></div>
+    </div>
+    <nav class="tabs" id="tabs">
+      <button data-tab="home" data-icon="home"><span>Accueil</span></button>
+      <button data-tab="play" data-icon="play"><span>Jouer</span></button>
+      <button data-tab="duo" data-icon="users"><span class="long">Multijoueur local</span><span class="short">Local</span></button>
+      <button data-tab="puzzles" data-icon="target"><span class="long">Problèmes</span><span class="short">Probl.</span></button>
+      <button data-tab="train" data-icon="zap"><span class="long">Exercices</span><span class="short">Exos</span></button>
+      <button data-tab="openings" data-icon="book"><span class="long">Ouvertures</span><span class="short">Ouvert.</span></button>
+      <button data-tab="analysis" data-icon="activity"><span>Analyse</span></button>
+      <button data-tab="coach" data-icon="trophy"><span>Progrès</span></button>
+      <button data-tab="stats" data-icon="chart"><span class="long">Statistiques</span><span class="short">Stats</span></button>
+    </nav>
+    <div class="top-actions">
+      <button id="elo-chip" class="elo-chip" title="Mon Elo estimé (voir l'onglet Progrès)"></button>
+      <button id="btn-help" class="icon-btn ghost" title="Aide : visite guidée et lexique des échecs" data-icon="help"></button>
+      <button id="btn-sound" class="icon-btn ghost" title="Activer / couper le son" data-icon="volume"></button>
+      <button id="btn-settings" class="icon-btn ghost" title="Réglages" data-icon="sliders"></button>
+    </div>
+    <div id="settings" class="popover hidden" role="dialog" aria-label="Réglages">
+      <div class="field-label">Thème</div>
+      <div class="seg full" id="set-theme">
+        <button data-v="auto">Auto</button><button data-v="light">Clair</button><button data-v="dark">Sombre</button>
+      </div>
+      <div class="field-label">Échiquier</div>
+      <div class="swatches" id="set-board">
+        <button data-v="bois" title="Bois"><i style="--a:#f0d9b5;--b:#b58863"></i>Bois</button>
+        <button data-v="vert" title="Vert"><i style="--a:#ebecd0;--b:#739552"></i>Vert</button>
+        <button data-v="bleu" title="Bleu"><i style="--a:#dee3e6;--b:#8ca2ad"></i>Bleu</button>
+        <button data-v="ardoise" title="Ardoise"><i style="--a:#d9d4c7;--b:#837b6e"></i>Ardoise</button>
+      </div>
+      <label class="toggle"><input type="checkbox" id="set-sound"><span class="track"></span><span>Sons</span></label>
+      <label class="toggle"><input type="checkbox" id="set-anim"><span class="track"></span><span>Animations</span></label>
+      <label class="toggle"><input type="checkbox" id="set-amb"><span class="track"></span><span>Ambiance des personnages<small>Plateau, pièces et décor aux couleurs de ton adversaire</small></span></label>
+      <label class="toggle"><input type="checkbox" id="set-haptic"><span class="track"></span><span>Vibrations<small>Sur téléphone, à chaque coup joué</small></span></label>
+      <label class="toggle"><input type="checkbox" id="set-coords"><span class="track"></span><span>Coordonnées sur l'échiquier</span></label>
+      <div class="field-label">3D</div>
+      <label class="toggle"><input type="checkbox" id="set-b3d"><span class="track"></span><span>Échiquier en 3D<small>Jouer directement sur un plateau 3D, dans tous les onglets (bouton « 3D » sous l'échiquier)</small></span></label>
+      <label class="toggle"><input type="checkbox" id="set-3d"><span class="track"></span><span>Captures en 3D<small>Dans « Jouer », chaque prise est rejouée en 3D par-dessus l'échiquier</small></span></label>
+      <div class="set-sub">Univers</div>
+      <div class="seg full" id="set-universe">
+        <button data-v="classique">Classique</button><button data-v="army">Armée</button><button data-v="magic">Magie</button>
+      </div>
+      <div class="set-sub">Qualité</div>
+      <div class="seg full" id="set-quality3d">
+        <button data-v="hd">HD</button><button data-v="uhd">4K</button>
+      </div>
+      <label class="toggle"><input type="checkbox" id="set-cine"><span class="track"></span><span>Caméra cinéma<small>La caméra plonge sur l'action puis revient</small></span></label>
+      <div class="toolbar tight"><button id="set-3d-demo" data-icon="play">Voir un exemple</button></div>
+      <p class="small muted" id="set-3d-info"></p>
+      <div class="field-label">Mes données</div>
+      <p class="small muted" id="set-data-info"></p>
+      <div class="toolbar tight">
+        <button id="set-backup" data-icon="download">Sauvegarder</button>
+        <button id="set-restore" data-icon="upload">Restaurer</button>
+      </div>
+    </div>
+  </header>
+
+  <div id="amb-deco" class="amb-deco" aria-hidden="true"></div>
+  <main class="layout">
+    <section class="board-col">
+      <div class="player-bar hidden" id="bar-top"></div>
+      <div class="board-wrap">
+        <div id="evalbar" class="evalbar hidden" title="Évaluation du moteur"><div class="evalfill"></div><span class="evaltext"></span></div>
+        <div id="board" class="board-host"></div>
+      </div>
+      <div class="player-bar hidden" id="bar-bottom"></div>
+      <div class="board-tools">
+        <button id="btn-flip" class="icon-btn" title="Retourner l'échiquier" data-icon="flip"></button>
+        <button id="btn-3d" class="icon-btn btn-3d" title="Échiquier en 3D" aria-pressed="false">3D</button>
+        <button id="btn-full" class="icon-btn" title="Agrandir l'échiquier (plein écran)" aria-pressed="false" data-icon="expand"></button>
+        <span id="pre-info" class="pre-info hidden" role="status"></span>
+        <span class="hint-text">Clic droit : marquer une case · clic droit glissé : dessiner une flèche</span>
+      </div>
+    </section>
+
+    <aside class="panel">
+      <!-- ================= Accueil ================= -->
+      <div id="panel-home" class="mode hidden">
+        <section class="card home-hero">
+          <div class="kicker">Accueil</div>
+          <h2 id="home-hello">Bonjour !</h2>
+          <p id="home-summary" class="muted"></p>
+        </section>
+        <section id="home-daily" class="card daily"></section>
+        <section class="card">
+          <h3>Que faire maintenant ?</h3>
+          <div id="home-go" class="home-grid"></div>
+        </section>
+        <section class="card" id="home-help">
+          <h3>Bien démarrer</h3>
+          <p class="muted small">Découvre l'appli en une minute, et retrouve à tout moment le sens des mots des échecs : « gagner du matériel », « fourchette », « clouage »…</p>
+          <div class="toolbar"><button id="home-tour" class="btn-primary" data-icon="help">Visite guidée</button><button id="home-lex" data-icon="book">Lexique des échecs</button></div>
+        </section>
+      </div>
+
+      <!-- ================= Jouer ================= -->
+      <div id="panel-play" class="mode hidden">
+        <section class="card hidden" id="pl-game">
+          <div class="kicker" id="pl-info"></div>
+          <h2 id="pl-status" class="status"></h2>
+          <p id="pl-adapt" class="adapt-line hidden"></p>
+          <div id="pl-threat-info" class="threat-info hidden"></div>
+          <div id="pl-coach" class="feedback"></div>
+          <div id="pl-moves" class="moves"></div>
+          <div class="toolbar">
+            <button id="pl-threats" class="toggle-btn" data-icon="eye" title="Afficher ce que l'adversaire attaque ou menace">Menaces</button>
+            <button id="pl-hint" data-icon="bulb">Indice</button>
+            <button id="pl-takeback" data-icon="undo">Annuler</button>
+            <button id="pl-resign" data-icon="flag">Abandonner</button>
+            <button id="pl-analyse" data-icon="activity">Analyser</button>
+          </div>
+        </section>
+        <section class="card">
+          <div class="kicker">Nouvelle partie</div>
+          <h2>Jouer contre l'ordinateur</h2>
+          <p class="muted">Commence bas, puis monte d'un cran quand tu gagnes régulièrement.</p>
+          <div class="field-label">Adversaire</div>
+          <div class="seg full" id="pl-opp">
+            <button data-o="char">Personnages</button><button data-o="adapt">Adaptatifs</button><button data-o="sf">Stockfish</button>
+          </div>
+          <div class="char-grid" id="pl-levels"></div>
+          <div class="char-grid hidden" id="pl-adapt-levels"></div>
+          <div class="sf-box hidden" id="pl-sf-levels">
+            <div class="sf-elo-line"><span>Force de Stockfish</span><output id="pl-sf-elo-v" for="pl-sf-elo"></output></div>
+            <input type="range" id="pl-sf-elo" min="600" max="3200" step="50" aria-label="Force de Stockfish en Elo">
+            <div class="sf-presets" id="pl-sf-presets">
+              <button data-e="800">800</button><button data-e="1200">1200</button><button data-e="1600">1600</button>
+              <button data-e="2000">2000</button><button data-e="2500">2500</button><button data-e="3200">Max</button>
+            </div>
+            <button class="btn-primary btn-block" id="pl-sf-go" data-icon="play">Jouer contre Stockfish</button>
+          </div>
+          <p id="pl-level-desc" class="level-desc"></p>
+          <label class="toggle"><input type="checkbox" id="pl-amb"><span class="track"></span><span><strong>Ambiance du personnage</strong><small>Plateau, pièces et décor à ses couleurs</small></span></label>
+          <div class="field-label">Ta couleur</div>
+          <div class="color-pick" id="pl-color">
+            <button data-c="w"><span data-piece="K"></span>Blancs</button>
+            <button data-c="b"><span data-piece="k"></span>Noirs</button>
+            <button data-c="r"><span class="rand"><span data-piece="K"></span><span data-piece="k"></span></span>Au hasard</button>
+          </div>
+          <div class="field-label">Pendule</div>
+          <div class="seg full" id="pl-clock">
+            <button data-t="none">Sans</button><button data-t="3+2">3 + 2</button><button data-t="5+3">5 + 3</button><button data-t="10+0">10 min</button><button data-t="15+10">15 + 10</button>
+          </div>
+          <label class="toggle"><input type="checkbox" id="pl-coach-on"><span class="track"></span>
+            <span><strong>Mode coach</strong><small>Me prévenir avant une gaffe</small></span></label>
+          <button id="pl-new" class="btn-primary btn-block" data-icon="play">Nouvelle partie</button>
+          <p id="pl-stats" class="stats-line"></p>
+        </section>
+      </div>
+
+      <!-- ================= Problèmes ================= -->
+      <div id="panel-puzzles" class="mode hidden">
+        <section class="card">
+          <div id="pz-session" class="session hidden"></div>
+          <div class="card-head">
+            <div class="chips"><span id="pz-theme" class="chip"></span><span id="pz-level" class="stars"></span></div>
+            <span id="pz-num" class="muted small"></span>
+          </div>
+          <h2 id="pz-title"></h2>
+          <div class="goal"><span id="pz-turn" class="turn-dot"></span><span id="pz-goal"></span></div>
+          <div id="pz-feedback" class="feedback"></div>
+          <div class="toolbar">
+            <button id="pz-hint" data-icon="bulb">Indice</button>
+            <button id="pz-solution" data-icon="eye">Solution</button>
+            <button id="pz-retry" data-icon="undo">Recommencer</button>
+            <button id="pz-analyse" class="hidden" data-icon="activity">Analyser</button>
+            <button id="pz-next" class="btn-primary push-right">Suivant<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></button>
+          </div>
+        </section>
+        <section class="card">
+          <div class="card-head"><h3>Ma progression</h3><span id="pz-stats" class="muted small"></span></div>
+          <div class="progress"><div id="pz-progress"></div></div>
+          <div id="pz-list"></div>
+          <button id="pz-reset" class="link">Réinitialiser ma progression</button>
+        </section>
+        <section class="card" id="pz-factory">
+          <div class="card-head"><h3>Problèmes à partir de mes erreurs</h3><span id="fa-count" class="muted small"></span></div>
+          <p class="muted small"><strong>Stockfish</strong> réanalyse tes parties : tes gaffes, tes occasions manquées et les mats ratés ou subis deviennent des exercices. Puis l'appli crée de <strong>nouveaux problèmes</strong> sur les thèmes où tu te trompes le plus.</p>
+          <div class="field-label">Parties à analyser</div>
+          <div class="seg full" id="fa-source">
+            <button data-s="mine" class="on">Mes parties dans l'appli</button><button data-s="pgn">Lichess / Chess.com</button>
+          </div>
+          <div id="fa-mine-box">
+            <div class="seg" id="fa-games"><button data-n="1">La dernière</button><button data-n="3" class="on">Les 3 dernières</button><button data-n="10">Les 10 dernières</button></div>
+            <p id="fa-mine-info" class="muted small"></p>
+          </div>
+          <div id="fa-pgn-box" class="hidden">
+            <textarea id="fa-pgn" rows="4" placeholder="Colle ici une ou plusieurs de tes parties au format PGN (Lichess : partie → Partager → PGN ; Chess.com : partie → Partager → PGN)."></textarea>
+            <input id="fa-me" class="text-input" type="text" autocomplete="off" spellcheck="false" placeholder="Ton pseudo (pour savoir quel camp tu jouais)">
+            <div class="seg" id="fa-color"><span class="seg-label">Sinon, je jouais :</span><button data-c="w" class="on">Blancs</button><button data-c="b">Noirs</button></div>
+          </div>
+          <label class="toggle"><input type="checkbox" id="fa-new" checked><span class="track"></span>
+            <span><strong>Créer aussi de nouveaux problèmes</strong><small>Sur mes thèmes faibles, vérifiés par Stockfish</small></span></label>
+          <div class="seg" id="fa-max"><span class="seg-label">Combien :</span><button data-n="3">3</button><button data-n="5" class="on">5</button><button data-n="10">10</button></div>
+          <div class="toolbar">
+            <button id="fa-start" class="btn-primary" data-icon="zap">Analyser avec Stockfish</button>
+            <button id="fa-stop" class="hidden" data-icon="x">Arrêter</button>
+          </div>
+          <div id="fa-status" class="feedback"></div>
+          <button id="fa-clear" class="link hidden">Effacer les problèmes que j'ai créés</button>
+        </section>
+      </div>
+
+      <!-- ================= Exercices ================= -->
+      <div id="panel-train" class="mode hidden">
+        <section class="card">
+          <div class="kicker">Exercices</div>
+          <h2>S'entraîner autrement</h2>
+          <div class="seg full" id="tr-tabs">
+            <button data-t="path">Parcours</button><button data-t="lessons">Leçons</button><button data-t="endgames">Finales</button><button data-t="rush">Chrono</button><button data-t="coords">Coordonnées</button>
+          </div>
+          <div id="tr-body"></div>
+        </section>
+      </div>
+
+      <!-- ================= Ouvertures ================= -->
+      <div id="panel-openings" class="mode hidden">
+        <section id="op-listview" class="card">
+          <div class="kicker">Répertoire</div>
+          <h2>Ouvertures</h2>
+          <p class="muted">Découvre chaque ouverture coup par coup avec les explications, puis entraîne-toi à la rejouer de mémoire.</p>
+          <div class="seg" id="op-filter">
+            <button data-f="all" class="on">Toutes</button><button data-f="w">Avec les Blancs</button><button data-f="b">Avec les Noirs</button>
+          </div>
+          <div id="op-list" class="op-list"></div>
+        </section>
+        <section id="op-detail" class="card hidden">
+          <button id="op-back" class="link back" data-icon="back">Toutes les ouvertures</button>
+          <h2 id="op-name"></h2>
+          <p id="op-desc" class="muted"></p>
+          <div class="seg full" id="op-mode">
+            <button data-m="learn" class="on">Découvrir</button><button data-m="train">S'entraîner</button>
+          </div>
+          <div id="op-learn">
+            <div id="op-comment" class="comment"></div>
+            <div class="nav" id="op-nav">
+              <button data-n="start" title="Début" data-icon="first"></button><button data-n="prev" title="Précédent (←)" data-icon="prev"></button>
+              <button data-n="next" title="Suivant (→)" data-icon="next"></button><button data-n="end" title="Fin" data-icon="last"></button>
+            </div>
+          </div>
+          <div id="op-train" class="hidden">
+            <div class="seg full" id="op-color">
+              <button data-c="w">Je joue les Blancs</button><button data-c="b">Je joue les Noirs</button>
+            </div>
+            <label class="toggle"><input type="checkbox" id="op-wild"><span class="track"></span>
+              <span><strong>Adversaire imprévisible</strong><small>Il sort parfois de la théorie : à toi de trouver un bon coup</small></span></label>
+            <div id="op-tfeedback" class="feedback"></div>
+            <div class="toolbar">
+              <button id="op-thint" data-icon="bulb">Indice</button>
+              <button id="op-trestart" data-icon="undo">Recommencer</button>
+            </div>
+          </div>
+          <div id="op-moves" class="moves"></div>
+        </section>
+      </div>
+
+      <!-- ================= Progrès ================= -->
+      <div id="panel-coach" class="mode hidden">
+        <section class="card">
+          <div class="kicker">Entraînement personnalisé</div>
+          <h2>Mes progrès et points faibles</h2>
+          <div id="co-path"></div>
+          <p class="muted">J'analyse tes problèmes et tes parties contre l'ordinateur pour te proposer des exercices sur mesure.</p>
+          <div id="co-rating" class="rating"></div>
+          <div id="co-backup-tip"></div>
+          <div id="co-tiles" class="stat-grid"></div>
+          <button id="co-session" class="btn-primary btn-block" data-icon="target">Lancer ma séance personnalisée</button>
+          <p id="co-session-desc" class="stats-line"></p>
+        </section>
+        <section class="card">
+          <div class="card-head"><h3>Mes thèmes</h3><span class="muted small">réussite du premier coup</span></div>
+          <div id="co-themes" class="theme-list"></div>
+        </section>
+        <section class="card">
+          <h3>Mes erreurs en partie</h3>
+          <div id="co-queue"></div>
+          <div id="co-types" class="chip-row"></div>
+          <div id="co-errors" class="err-list"></div>
+          <div class="toolbar"><button id="co-replay" data-icon="undo">Rejouer mes erreurs</button></div>
+        </section>
+        <section class="card">
+          <div class="card-head"><h3>Mes parties</h3><button id="co-export" data-icon="download">Tout exporter (.pgn)</button></div>
+          <div id="co-games"></div>
+        </section>
+      </div>
+
+      <!-- ================= Partie à deux ================= -->
+      <div id="panel-duo" class="mode hidden">
+        <section class="card" id="du-setup">
+          <div class="kicker">Multijoueur local</div>
+          <h2>Jouer à deux, sur deux appareils proches</h2>
+          <p class="muted small">C'est un <strong>multijoueur local</strong> : les deux appareils doivent être au même endroit, <strong>sur le même Wi-Fi</strong> (pas de partie à distance par Internet). L'un crée la partie et affiche un QR code, l'autre le scanne ; puis le premier scanne à son tour le QR code du second. Les coups passent ensuite directement d'un appareil à l'autre, sans aucun serveur.</p>
+          <div class="field-label">Ton prénom</div>
+          <input id="du-name" class="text-input" type="text" maxlength="20" autocomplete="off" placeholder="Affiché chez l'autre joueur">
+          <div class="field-label">Si tu crées la partie : ta couleur</div>
+          <div class="seg full" id="du-color"><button data-c="w">Blancs</button><button data-c="b">Noirs</button><button data-c="r">Au hasard</button></div>
+          <div class="field-label">Pendule</div>
+          <div class="seg full" id="du-clock">
+            <button data-t="none">Sans</button><button data-t="3+2">3 + 2</button><button data-t="5+3">5 + 3</button><button data-t="10+0">10 min</button><button data-t="15+10">15 + 10</button>
+          </div>
+          <div id="du-msg-setup"></div>
+          <div class="toolbar">
+            <button id="du-create" class="btn-primary" data-icon="plus">Créer la partie</button>
+            <button id="du-join" data-icon="eye">Rejoindre une partie</button>
+          </div>
+        </section>
+        <section class="card hidden" id="du-link">
+          <div id="du-link-body"></div>
+          <button id="du-link-cancel" class="link">Annuler</button>
+        </section>
+        <section class="card hidden" id="du-game">
+          <div class="kicker" id="du-info"></div>
+          <h2 id="du-status" class="status"></h2>
+          <div id="du-msg" class="feedback"></div>
+          <div id="du-moves" class="moves"></div>
+          <div class="toolbar">
+            <button id="du-draw" data-icon="flag">Proposer nulle</button>
+            <button id="du-resign" data-icon="flag">Abandonner</button>
+            <button id="du-rematch" class="hidden btn-primary" data-icon="undo">Revanche</button>
+            <button id="du-analyse" class="hidden" data-icon="activity">Analyser</button>
+            <button id="du-quit" data-icon="x">Quitter</button>
+          </div>
+          <div id="du-chat">
+            <div class="du-emojis" id="du-emojis"></div>
+            <div class="du-text"><input id="du-text" class="text-input" type="text" maxlength="80" autocomplete="off" placeholder="Petit message à l'autre joueur…"><button id="du-send">Envoyer</button></div>
+          </div>
+        </section>
+      </div>
+
+      <!-- ================= Statistiques ================= -->
+      <div id="panel-stats" class="mode hidden">
+        <section class="card">
+          <div class="kicker">Statistiques</div>
+          <h2>Mes statistiques</h2>
+          <div class="seg full" id="st-filter">
+            <button data-f="all" class="on">Toutes mes parties</button><button data-f="app">Dans l'appli</button><button data-f="pgn">Lichess / Chess.com</button>
+          </div>
+          <div id="st-tiles" class="stat-grid"></div>
+          <div id="st-tables"></div>
+        </section>
+        <section class="card">
+          <div class="card-head"><h3>Carte de chaleur</h3><span id="st-heat-n" class="muted small"></span></div>
+          <p class="muted small">Elle s'affiche sur l'échiquier : plus une case est colorée, plus elle revient souvent.</p>
+          <div class="seg full" id="st-heat"><button data-h="err" class="on">Mes erreurs</button><button data-h="moves">Mes coups</button></div>
+          <div class="seg full" id="st-piece"></div>
+          <div id="st-heat-info"></div>
+        </section>
+      </div>
+
+      <!-- ================= Analyse ================= -->
+      <div id="panel-analysis" class="mode hidden">
+        <section class="card">
+          <div class="card-head">
+            <h2>Analyse</h2>
+            <label class="toggle compact"><input type="checkbox" id="an-engine"><span class="track"></span><span>Moteur</span></label>
+            <label class="toggle compact" id="an-sf-wrap" title="Stockfish 18, le moteur libre le plus fort du monde (téléchargé depuis Internet la première fois, 7 Mo)"><input type="checkbox" id="an-sf"><span class="track"></span><span>Stockfish</span></label>
+          </div>
+          <div id="an-eval" class="engine-line"></div>
+          <p id="an-sf-status" class="muted small"></p>
+          <div id="an-status" class="status-line"></div>
+          <div class="nav" id="an-nav">
+            <button data-n="start" title="Début" data-icon="first"></button><button data-n="prev" title="Précédent (←)" data-icon="prev"></button>
+            <button data-n="next" title="Suivant (→)" data-icon="next"></button><button data-n="end" title="Fin" data-icon="last"></button>
+          </div>
+          <div id="an-moves" class="moves tree"></div>
+          <div id="an-comment" class="comment hidden"></div>
+          <div id="an-progress" class="progress hidden"><div></div></div>
+          <div id="an-summary"></div>
+          <div class="toolbar">
+            <button id="an-run" class="btn-primary" data-icon="zap">Analyser la partie</button>
+            <button id="an-play" data-icon="play" title="Continuer la partie contre l'ordinateur à partir de la position affichée">Jouer d'ici</button>
+            <button id="an-takeback" data-icon="undo">Annuler</button>
+            <button id="an-promote" class="hidden" data-icon="arrow" title="Cette variante devient la suite principale de la partie">Ligne principale</button>
+            <button id="an-delvar" class="hidden" data-icon="x" title="Supprimer la variante où se trouve le coup affiché">Supprimer la variante</button>
+            <button id="an-new" data-icon="plus">Nouvelle</button>
+            <button id="an-copy" data-icon="copy">Copier le PGN</button>
+            <button id="an-download" data-icon="download">Télécharger (.pgn)</button>
+          </div>
+          <p class="muted small">Joue les coups des deux camps, ou charge une partie ci-dessous. « Analyser la partie » repère les imprécisions, erreurs et gaffes.</p>
+        </section>
+        <section class="card">
+          <h3>Charger une partie ou une position</h3>
+          <p class="muted small">Colle un PGN (export Lichess, Chess.com…) ou une position FEN, ou ouvre un fichier .pgn.</p>
+          <textarea id="an-input" rows="4" placeholder="1. e4 e5 2. Nf3 Nc6 3. Bb5 …&#10;ou une FEN : rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"></textarea>
+          <div class="toolbar"><button id="an-load" data-icon="upload">Charger</button><button id="an-file" data-icon="folder">Ouvrir un fichier .pgn</button></div>
+          <div id="an-error" class="error"></div>
+        </section>
+      </div>
+    </aside>
+  </main>
+
+  <script src="js/pieces.js"></script>
+  <script src="js/icons.js"></script>
+  <script src="js/chess-core.js"></script>
+  <script src="js/engine.js"></script>
+  <script src="js/board.js"></script>
+  <script src="js/tactics.js"></script>
+  <script src="js/puzzle-gen.js"></script>
+  <script src="js/lib/qrcode.js"></script>
+  <script src="js/lib/jsqr.js"></script>
+  <script src="js/data-puzzles.js"></script>
+  <script src="js/data-puzzles-gen.js"></script>
+  <script src="js/data-openings.js"></script>
+  <script src="js/data-lessons.js"></script>
+  <script src="js/data-levels.js"></script>
+  <script src="js/data-lexique.js"></script>
+  <script src="js/stockfish.js"></script>
+  <script src="js/capture3d.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
